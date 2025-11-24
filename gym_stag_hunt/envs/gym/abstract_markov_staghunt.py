@@ -97,22 +97,33 @@ class AbstractMarkovStagHuntEnv(Env, ABC):
 
         self.game.reset_entities()
         self.done = False
-        obs = self.game.get_observation()
 
-        if isinstance(obs, (tuple, list)):
-            obs_a = obs[0]
+        base_obs = self.game.get_observation()
+
+        enable_multi = getattr(self.game, "_enable_multiagent", False)
+        obs_type = getattr(self.game, "_obs_type", None)
+
+        if enable_multi:
+            if obs_type == "coords":
+                obs_0 = np.asarray(base_obs, dtype=self.observation_space.dtype)
+                obs_1_raw = self.game._flip_coord_observation_perspective(base_obs)
+                obs_1 = np.asarray(obs_1_raw, dtype=self.observation_space.dtype)
+
+                obs = np.stack([obs_0, obs_1], axis=0)
+            else:
+                obs_0 = np.asarray(base_obs, dtype=self.observation_space.dtype)
+                obs = np.stack([obs_0, obs_0], axis=0)  # 形状：(2, H, W, C)
         else:
-            obs_a = obs
+            # 单智能体模式保持原样
+            if isinstance(base_obs, (tuple, list)):
+                base_obs = base_obs[0]
+            obs = np.asarray(base_obs, dtype=self.observation_space.dtype)
 
-        obs = np.asarray(obs_a, dtype=self.observation_space.dtype)
-
-        entity_positions = getattr(self.game, "ENTITY_POSITIONS", None)
         info = {}
-
+        entity_positions = getattr(self.game, "ENTITY_POSITIONS", None)
         if entity_positions is not None:
             info["entity_positions"] = entity_positions
 
-        info = {}
         return obs, info
 
     def render(self, mode="human", obs=None):

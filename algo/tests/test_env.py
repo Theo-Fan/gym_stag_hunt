@@ -1,3 +1,5 @@
+import sys
+
 import gymnasium as gym
 import gym_stag_hunt
 import time
@@ -6,7 +8,7 @@ env = gym.make(
     "StagHunt-Hunt-v0",
     grid_size=(6, 6),
     screen_size=(600, 600),
-    obs_type="image",
+    obs_type="coords",
     enable_multiagent=True,
     stag_follows=False,
     run_away_after_maul=True,
@@ -16,11 +18,14 @@ env = gym.make(
     mauling_punishment=-2,
 )  # you can pass config parameters here
 
-env.reset()
-for iteration in range(1000):
+obses, _ = env.reset()
+for iteration in range(100):
     # time.sleep(.2)
     actions = [env.action_space.sample(), env.action_space.sample()]
     obs, rewards, terminated, truncated, info = env.step(actions)
-    print(f"timestep: {iteration} action:{actions} obs: {obs[0].shape}, rewards: {rewards}, info: {info}")
+
+    print(f"timestep: {iteration} action:{actions} obs: {obs}, rewards: {rewards}, info: {info}")
+    print(f"done: {terminated}, truncated: {truncated}\n")
     env.render()
+
 env.close()

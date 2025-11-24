@@ -6,3 +6,4 @@ Pipfile
 Pipfile.lock
 *.egg-info/
 .DS_Store
+ppo_preTrain/
