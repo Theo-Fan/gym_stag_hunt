@@ -8,9 +8,9 @@ env = gym.make(
     "StagHunt-Hunt-v0",
     grid_size=(6, 6),
     screen_size=(600, 600),
-    obs_type="coords",
+    obs_type="image",
     enable_multiagent=True,
-    stag_follows=False,
+    stag_follows="follow",
     run_away_after_maul=True,
     forage_quantity=2,
     stag_reward=5,
@@ -20,7 +20,7 @@ env = gym.make(
 
 obses, _ = env.reset()
 for iteration in range(100):
-    # time.sleep(.2)
+    time.sleep(.2)
     actions = [env.action_space.sample(), env.action_space.sample()]
     obs, rewards, terminated, truncated, info = env.step(actions)
 

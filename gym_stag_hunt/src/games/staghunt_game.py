@@ -159,7 +159,7 @@ class StagHunt(AbstractGridGame):
         :return: observation, rewards, is the game done
         """
         # Move Entities
-        self._move_stag()
+        # self._move_stag() # control stag movement here if desired
         if self._enable_multiagent:
             self._move_agents(agent_moves=agent_moves)
         else:

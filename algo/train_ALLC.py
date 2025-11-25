@@ -10,48 +10,47 @@ import gymnasium as gym
 
 from algo.Utils import row2
 from algo.agent.ppo_agent import PPO as PPO_Basic
+from algo.fixed_policy import choice_action
 
 
 def main():
     env_name = "StagHunt-Hunt-v0"
+    grid_size = (8, 8)
     max_ep_len = 500
-    max_training_timesteps = int(3e7)
 
-    print_freq = max_ep_len * 10
+    max_training_timesteps = int(5e6)
+    print_freq = max_ep_len * 20
     log_freq = max_ep_len * 2
-
     save_model_freq = int(5e5)
 
     update_timestep = max_ep_len * 12
     K_epochs = 8
-
     eps_clip = 0.2
     gamma = 0.99
-
     lr_actor = 0.0003
     lr_critic = 0.001
 
     random_seed = 0
 
     env = gym.make(
-        env_name,
-        grid_size=(5, 5),
+        id=env_name,
+        grid_size=grid_size,
         screen_size=(600, 600),
         obs_type="coords",
         enable_multiagent=True,
-        run_away_after_maul=True,
+        run_away_after_maul=False,
         forage_quantity=2,
         stag_reward=5,
         forage_reward=1,
-        mauling_punishment=-2,
+        mauling_punishment=-1e-4,
     )
     USE_WANDB = True
     if USE_WANDB:
         import wandb
         wandb.init(
             project=env_name,
-            tags=["PPO", "Train Basic"],
-            name=f"PPO_Train_Basic",
+            tags=["PPO", "Train ALLC", "Rule-Base"],
+            name=f"rule-base_train_allc",
             mode="online",
             config={
                 "env": env_name,
@@ -59,14 +58,15 @@ def main():
                 "K_epochs": K_epochs,
                 "max_ep_len": max_ep_len,
                 "lr": lr_actor,
-                "max_training_timesteps": max_training_timesteps
+                "max_training_timesteps": max_training_timesteps,
+                "grid_size": grid_size,
             },
         )
 
     state_dim = env.observation_space.shape
     action_dim = env.action_space.n
 
-    directory = "ppo_preTrain/stag_hunt/basic"
+    directory = "ppo_preTrain/stag_hunt/rulebase_allc"
     if not os.path.exists(directory):
         os.makedirs(directory)
 
@@ -124,7 +124,7 @@ def main():
     print("--------------------------------------------------------------------------------------------")
 
     agent0 = PPO_Basic(state_dim, action_dim, lr_actor, lr_critic, gamma, K_epochs, eps_clip)
-    agent1 = PPO_Basic(state_dim, action_dim, lr_actor, lr_critic, gamma, K_epochs, eps_clip)
+    # agent1 = PPO_Basic(state_dim, action_dim, lr_actor, lr_critic, gamma, K_epochs, eps_clip)
 
     print("============================================================================================")
     start_time = datetime.now().replace(microsecond=0)
@@ -146,8 +146,6 @@ def main():
 
     while time_step <= max_training_timesteps:
 
-        obses, _ = env.reset()
-
         agent0_current_ep_reward = 0
         agent1_current_ep_reward = 0
         agent0_current_ep_stag_cnt = 0
@@ -157,9 +155,17 @@ def main():
         agent0_current_ep_hunt_cnt = 0
         agent1_current_ep_hunt_cnt = 0
 
+        obses, infos = env.reset()
+
         for t in range(max_ep_len):
             agent0_action, _, agent0_action_log_prob = agent0.get_action(obses[0])
-            agent1_action, _, agent1_action_log_prob = agent1.get_action(obses[1])
+
+            agent1_action = choice_action(
+                agent_policy="allc",
+                agent_id=1,
+                pos_info=infos,
+            )
+
             actions = [agent0_action, agent1_action]
 
             ne_obses, reward, dones, truncateds, infos = env.step(actions)
@@ -187,14 +193,14 @@ def main():
                 dones,
             )
 
-            agent1.buffer.add(
-                obses[1],
-                agent1_action,
-                agent1_action_log_prob,
-                sum(reward),
-                ne_obses[1],
-                dones,
-            )
+            # agent1.buffer.add(
+            #     obses[1],
+            #     agent1_action,
+            #     agent1_action_log_prob,
+            #     sum(reward),
+            #     ne_obses[1],
+            #     dones,
+            # )
 
             obses = ne_obses
             time_step += 1
@@ -204,7 +210,7 @@ def main():
 
             if time_step % update_timestep == 0:
                 agent0.update_net()
-                agent1.update_net()
+                # agent1.update_net()
 
             if time_step % print_freq == 0:
                 agent0_print_avg_reward = round((agent0_print_running_reward / (print_running_episodes + 1e-9)), 2)
@@ -272,9 +278,9 @@ def main():
                 print(f"agent_0 saving model at : {agent_0_checkpoint_path}")
                 agent0.save_model(agent_0_checkpoint_path)
 
-                agent_1_checkpoint_path = agent_1_dir + f"agent_1_PPO_{env_name}_{random_seed}_{time_step}.pth"
-                print(f"agent_1 saving model at : {agent_1_checkpoint_path}")
-                agent1.save_model(agent_1_checkpoint_path)
+                # agent_1_checkpoint_path = agent_1_dir + f"agent_1_PPO_{env_name}_{random_seed}_{time_step}.pth"
+                # print(f"agent_1 saving model at : {agent_1_checkpoint_path}")
+                # agent1.save_model(agent_1_checkpoint_path)
 
                 print("model saved")
                 print("Elapsed Time  : ", datetime.now().replace(microsecond=0) - start_time)
