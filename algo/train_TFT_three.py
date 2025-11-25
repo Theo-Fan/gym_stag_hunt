@@ -1,6 +1,8 @@
 import os
 import random
 import csv
+from collections import deque
+
 import torch
 import numpy as np
 from datetime import datetime
@@ -8,9 +10,23 @@ from datetime import datetime
 import gym_stag_hunt
 import gymnasium as gym
 
-from algo.Utils import row2
-from algo.agent.ppo_agent import PPO as PPO_Basic
+from algo.Utils import row2, convert_coords_to_tuples, row1
+from algo.agent.ppo_agent_memory import PPO as PPO_Memory
 from algo.fixed_policy import choice_action
+from algo.opp_policy import sample_opponent_policy_three
+from algo.strategy_infer_model import global_strategy_infer_stag_hunt
+
+
+def compute_tft_reward(self_label, opp_last_label, w=1.0):
+    if self_label == opp_last_label:
+        return +w
+    return -w
+
+
+def total_reward(r_env, self_label, opp_last_label, lambda_tft=1.0, lambda_imp=0.1, violation=False):
+    r_tft = compute_tft_reward(self_label, opp_last_label) if self_label is not None else 0.0
+    r_imp = -1.0 if violation else 0.0
+    return r_env + lambda_tft * r_tft + lambda_imp * r_imp
 
 
 def main():
@@ -18,9 +34,8 @@ def main():
     grid_size = (8, 8)
     max_ep_len = 500
 
-    max_training_timesteps = int(1e7)
+    max_training_timesteps = int(3e7)
     print_freq = max_ep_len * 20
-    log_freq = max_ep_len * 2
     save_model_freq = int(5e5)
 
     update_timestep = max_ep_len * 12
@@ -31,6 +46,14 @@ def main():
     lr_critic = 0.001
 
     random_seed = 0
+
+    ################ TFT hyperparameters ################
+    lambda_tft = 5.0
+    lambda_imp = 0.0
+
+    WINDOW = 500
+    coop_window_allc = deque(maxlen=WINDOW)
+    coop_window_alld = deque(maxlen=WINDOW)
 
     env = gym.make(
         id=env_name,
@@ -44,29 +67,38 @@ def main():
         forage_reward=1,
         mauling_punishment=-1e-4,
     )
+
     USE_WANDB = True
     if USE_WANDB:
         import wandb
         wandb.init(
             project=env_name,
-            tags=["PPO", "Train ALLC", "Rule-Base"],
-            name=f"rule-base_train_allc",
+            tags=["Rule-based Opponent", "opp_allc", "opp_alld", "opp_tft", "Train Agent0"],
+            name=f"TFT_r_{lambda_tft}_three",
             mode="online",
             config={
                 "env": env_name,
                 "eps_clip": eps_clip,
+                "gamma": gamma,
+                "update_timestep": update_timestep,
                 "K_epochs": K_epochs,
                 "max_ep_len": max_ep_len,
                 "lr": lr_actor,
+                "save_model_freq": save_model_freq,
+                "random_seed": random_seed,
+                "max_training_episodes": max_training_timesteps / max_ep_len,
                 "max_training_timesteps": max_training_timesteps,
-                "grid_size": grid_size,
+                "algorithm": "PPO",
+                "trained_agent": "agent_0",
+                "r_align": lambda_tft,
+                "r_imp": lambda_imp
             },
         )
 
     state_dim = env.observation_space.shape
     action_dim = env.action_space.n
 
-    directory = "ppo_preTrain/stag_hunt/rulebase_allc"
+    directory = f"ppo_preTrain/stag_hunt/Three_strategies_to_tft_r_{lambda_tft}"
     if not os.path.exists(directory):
         os.makedirs(directory)
 
@@ -85,6 +117,8 @@ def main():
         "agent0_avg_stag_cnt", "agent1_avg_stag_cnt",
         "agent0_avg_plants_cnt", "agent1_avg_plants_cnt",
         "agent0_avg_hunt_cnt", "agent1_avg_hunt_cnt",
+        "coop_rate_allc", "coop_rate_alld",
+        # ...
     ]
 
     with open(csv_path, "w", newline="", encoding="utf-8") as f:
@@ -100,7 +134,6 @@ def main():
     print("max training timesteps : ", max_training_timesteps)
     print("max timesteps per episode : ", max_ep_len)
     print("model saving frequency : " + str(save_model_freq) + " timesteps")
-    print("log frequency : " + str(log_freq) + " timesteps")
     print("printing average reward over episodes in last : " + str(print_freq) + " timesteps")
     print("--------------------------------------------------------------------------------------------")
     print("state space dimension : ", state_dim)
@@ -123,8 +156,7 @@ def main():
         random.seed(random_seed)
     print("--------------------------------------------------------------------------------------------")
 
-    agent0 = PPO_Basic(state_dim, action_dim, lr_actor, lr_critic, gamma, K_epochs, eps_clip)
-    # agent1 = PPO_Basic(state_dim, action_dim, lr_actor, lr_critic, gamma, K_epochs, eps_clip)
+    agent0 = PPO_Memory(state_dim, action_dim, lr_actor, lr_critic, gamma, K_epochs, eps_clip)
 
     print("============================================================================================")
     start_time = datetime.now().replace(microsecond=0)
@@ -139,12 +171,17 @@ def main():
     agent1_print_plants_cnt = 0
     agent0_print_hunt_cnt = 0
     agent1_print_hunt_cnt = 0
-    print_running_episodes = 0
 
     time_step = 0
     i_episode = 0
+    print_running_episodes = 0
+
+    tmp_strategies_lst = []
 
     while time_step <= max_training_timesteps:
+        obses, infos = env.reset()
+
+        pos_info = convert_coords_to_tuples(infos)['entity_positions']
 
         agent0_current_ep_reward = 0
         agent1_current_ep_reward = 0
@@ -155,42 +192,107 @@ def main():
         agent0_current_ep_hunt_cnt = 0
         agent1_current_ep_hunt_cnt = 0
 
-        obses, infos = env.reset()
+        agent0_last_strategy = 0  # start from cooperation
+        agent1_last_strategy = 0
+        agent0_curr_strategy = 0
+        agent1_curr_strategy = 0
+
+        agent0_history_strategies = []
+        agent1_history_strategies = []
+
+        agent0_pos_lst = [pos_info["agent_0"]]
+        agent1_pos_lst = [pos_info['agent_1']]
+
+        opp_cur_episode_policy = sample_opponent_policy_three()  # policy rollout: "allc", "alld", "tft"
+        tmp_strategies_lst.append(opp_cur_episode_policy)
 
         for t in range(max_ep_len):
-            agent0_action, _, agent0_action_log_prob = agent0.get_action(obses[0])
+            agent0_action, _, agent0_action_log_prob = agent0.get_action(
+                obses[0], agent1_last_strategy
+            )
 
             agent1_action = choice_action(
-                agent_policy="allc",
+                agent_policy=opp_cur_episode_policy,
                 agent_id=1,
-                pos_info=infos,
+                pos_info=pos_info,
+                opp_last=agent0_last_strategy
             )
 
             actions = [agent0_action, agent1_action]
 
-            ne_obses, reward, dones, truncateds, infos = env.step(actions)
+            ne_obses, rewards, dones, truncateds, infos = env.step(actions)
+            rewards = list(rewards)
+            env_r0, env_r1 = rewards[0], rewards[1]
 
-            if reward[0] < 0:
+            pos_info = convert_coords_to_tuples(infos)["entity_positions"]
+            stag_pos = pos_info["stag"]
+            plants_pos = pos_info["plants"]
+
+            agent0_pos_lst.append(pos_info["agent_0"])
+            agent1_pos_lst.append(pos_info["agent_1"])
+
+            if env_r0 < 0:
                 agent0_current_ep_hunt_cnt += 1
-            elif reward[0] == 1:
+            elif env_r0 == 1:
                 agent0_current_ep_plants_cnt += 1
-            elif reward[0] == 5:
+            elif env_r0 == 5:
                 agent0_current_ep_stag_cnt += 1
 
-            if reward[1] < 0:
+            if env_r1 < 0:
                 agent1_current_ep_hunt_cnt += 1
-            elif reward[1] == 1:
+            elif env_r1 == 1:
                 agent1_current_ep_plants_cnt += 1
-            elif reward[1] == 5:
+            elif env_r1 == 5:
                 agent1_current_ep_stag_cnt += 1
+
+            trigger = (env_r0 + env_r1) > 0
+
+            if trigger and len(agent0_pos_lst) > 1:
+                agent0_curr_strategy = global_strategy_infer_stag_hunt(
+                    0, agent0_pos_lst, stag_pos, plants_pos, rewards, agent0_history_strategies
+                )
+
+                agent1_curr_strategy = global_strategy_infer_stag_hunt(
+                    1, agent1_pos_lst, stag_pos, plants_pos, rewards, agent1_history_strategies
+                )
+
+                agent0_history_strategies.append(agent0_curr_strategy)
+                agent1_history_strategies.append(agent1_curr_strategy)
+
+                if opp_cur_episode_policy == "allc":
+                    coop_window_allc.append(1 if env_r0 == 5 else 0)
+                elif opp_cur_episode_policy == "alld":
+                    coop_window_alld.append(1 if env_r0 == 5 else 0)
+
+                rewards[0] = total_reward(
+                    env_r0,
+                    agent0_curr_strategy,
+                    agent1_last_strategy,
+                    lambda_tft=lambda_tft,
+                    lambda_imp=lambda_imp,
+                )
+
+                rewards[1] = total_reward(
+                    env_r1,
+                    agent1_curr_strategy,
+                    agent0_last_strategy,
+                    lambda_tft=lambda_tft,
+                    lambda_imp=lambda_imp,
+                )
+
+                agent0_pos_lst = [pos_info["agent_0"]]
+                agent1_pos_lst = [pos_info["agent_1"]]
 
             agent0.buffer.add(
                 obses[0],
                 agent0_action,
                 agent0_action_log_prob,
-                sum(reward),
+                rewards[0],
                 ne_obses[0],
                 dones,
+                agent0_curr_strategy,
+                agent1_last_strategy,
+                agent1_curr_strategy
             )
 
             # agent1.buffer.add(
@@ -202,11 +304,15 @@ def main():
             #     dones,
             # )
 
+            if trigger:
+                agent0_last_strategy = agent0_curr_strategy
+                agent1_last_strategy = agent1_curr_strategy
+
             obses = ne_obses
             time_step += 1
 
-            agent0_current_ep_reward += reward[0]
-            agent1_current_ep_reward += reward[1]
+            agent0_current_ep_reward += env_r0
+            agent1_current_ep_reward += env_r1
 
             if time_step % update_timestep == 0:
                 agent0.update_net()
@@ -231,6 +337,15 @@ def main():
                 print(row2("avg_plants_cnt", agent0_print_avg_plants_cnt, agent1_print_avg_plants_cnt))
                 print(row2("avg_hunt_cnt", agent0_print_avg_hunt_cnt, agent1_print_avg_hunt_cnt))
 
+                print(row1("Opponent strategies lst:", tmp_strategies_lst))
+                print(row1("Agent0 last_episode strategies lst:", agent0_history_strategies[-20:]))
+                print(row1("Agent1 last_episode strategies lst:", agent1_history_strategies[-20:]))
+
+                coop_rate_allc = sum(coop_window_allc) / max(1, len(coop_window_allc))
+                coop_rate_alld = sum(coop_window_alld) / max(1, len(coop_window_alld))
+                print(row1(f"coop_rate vs ALLC (stag / last {len(coop_window_allc)} ISHs):", f"{coop_rate_allc:.2f}"))
+                print(row1(f"coop_rate vs ALLD (stag / last {len(coop_window_alld)} ISHs):", f"{coop_rate_alld:.2f}"))
+
                 write_csv_row({
                     "episode": i_episode + 1,
                     "timestep": time_step,
@@ -243,7 +358,8 @@ def main():
                     "agent1_avg_plants_cnt": agent1_print_avg_plants_cnt,
                     "agent0_avg_hunt_cnt": agent0_print_avg_hunt_cnt,
                     "agent1_avg_hunt_cnt": agent1_print_avg_hunt_cnt,
-
+                    "coop_rate_allc": round(coop_rate_allc, 3),
+                    "coop_rate_alld": round(coop_rate_alld, 3),
                 })
 
                 if USE_WANDB:
@@ -251,6 +367,8 @@ def main():
                         "global/episode": i_episode + 1,
                         "global/timestep": time_step,
                         "global/collective_return": round((agent0_print_avg_reward + agent1_print_avg_reward) / 2, 2),
+                        "global/coop_rate_allc": coop_rate_allc,
+                        "global/coop_rate_alld": coop_rate_alld,
                         "agent0/avg_reward": agent0_print_avg_reward,
                         "agent1/avg_reward": agent1_print_avg_reward,
                         "agent0/avg_stag_cnt": agent0_print_avg_stag_cnt,
@@ -272,6 +390,8 @@ def main():
                 agent1_print_hunt_cnt = 0
                 print_running_episodes = 0
 
+                tmp_strategies_lst = []
+
             if time_step % save_model_freq == 0:
                 print("--------------------------------------------------------------------------------------------")
                 agent_0_checkpoint_path = agent_0_dir + f"agent_0_PPO_{env_name}_{random_seed}_{time_step}.pth"
@@ -286,7 +406,7 @@ def main():
                 print("Elapsed Time  : ", datetime.now().replace(microsecond=0) - start_time)
                 print("--------------------------------------------------------------------------------------------")
 
-            if dones:
+            if dones or truncateds:
                 break
 
         agent0_print_running_reward += agent0_current_ep_reward
@@ -297,8 +417,8 @@ def main():
         agent1_print_plants_cnt += agent1_current_ep_plants_cnt
         agent0_print_hunt_cnt += agent0_current_ep_hunt_cnt
         agent1_print_hunt_cnt += agent1_current_ep_hunt_cnt
-        print_running_episodes += 1
 
+        print_running_episodes += 1
         i_episode += 1
 
     print("============================================================================================")

@@ -80,16 +80,14 @@ class AbstractMarkovStagHuntEnv(Env, ABC):
 
         entity_positions = getattr(self.game, "ENTITY_POSITIONS", None)
         if entity_positions is not None:
-            # 确保 info 是 dict
             info = dict(info) if info is not None else {}
 
-            # 通用：整个 dict 都放进去，方便以后扩展/调试
             info["entity_positions"] = entity_positions
 
         terminated = bool(done)
         truncated = False
 
-        return obs, reward, terminated, truncated, info
+        return obs, list(reward), terminated, truncated, info
 
     def reset(self, *, seed=None, options=None):
         # gymnasium 规范

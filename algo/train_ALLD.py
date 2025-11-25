@@ -49,8 +49,8 @@ def main():
         import wandb
         wandb.init(
             project=env_name,
-            tags=["PPO", "Train ALLC", "Rule-Base"],
-            name=f"rule-base_train_allc",
+            tags=["PPO", "Train ALLD", "Rule-Base"],
+            name=f"rule-base_train_alld",
             mode="online",
             config={
                 "env": env_name,
@@ -66,7 +66,7 @@ def main():
     state_dim = env.observation_space.shape
     action_dim = env.action_space.n
 
-    directory = "ppo_preTrain/stag_hunt/rulebase_allc"
+    directory = "ppo_preTrain/stag_hunt/rulebase_alld"
     if not os.path.exists(directory):
         os.makedirs(directory)
 
@@ -161,7 +161,7 @@ def main():
             agent0_action, _, agent0_action_log_prob = agent0.get_action(obses[0])
 
             agent1_action = choice_action(
-                agent_policy="allc",
+                agent_policy="alld",
                 agent_id=1,
                 pos_info=infos,
             )

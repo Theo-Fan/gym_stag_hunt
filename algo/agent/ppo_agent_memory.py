@@ -98,16 +98,17 @@ class ActorCritic(nn.Module):
             nn.Conv2d(32, 32, kernel_size=3, padding=1), nn.Tanh(),
             nn.Flatten(),
             # nn.Linear(32 * 11 * 11, 64),  # coins (11, 11, 14)
-            nn.Linear(32 * 6 * 6, 64), # coop mining (6, 6, 12)
+            nn.Linear(32 * 6 * 6, 64),  # coop mining (6, 6, 12)
         )
         cnn_out_dim = 64
 
         self.action_dim = action_dim
         self.opp_dim = opp_dim
+        obs_size = obs_dim[0]
 
-        # Actor 
+        # Actor
         self.actor = nn.Sequential(
-            nn.Linear(cnn_out_dim + opp_dim, 64), nn.Tanh(),
+            nn.Linear(obs_size + opp_dim, 64), nn.Tanh(),
             nn.Linear(64, 64), nn.Tanh(),
             nn.Linear(64, action_dim),
             nn.Softmax(dim=-1)
@@ -115,9 +116,11 @@ class ActorCritic(nn.Module):
 
         # Critic 
         self.critic = nn.Sequential(
-            nn.Linear(cnn_out_dim + opp_dim, 64), nn.Tanh(),
-            nn.Linear(64, 64), nn.Tanh(),
-            nn.Linear(64, 1)
+            nn.Linear(obs_size + opp_dim, 64),
+            nn.Tanh(),
+            nn.Linear(64, 32),
+            nn.Tanh(),
+            nn.Linear(32, 1)
         )
 
     @staticmethod
@@ -156,11 +159,9 @@ class PPO:
 
     def get_action(self, obs, strategy, is_eval=False):
         obs_t = torch.FloatTensor(obs.copy()).unsqueeze(0).to(device)
-        obs_t = self.ac_net_old.reshape_cnn_input(obs_t)
         with torch.no_grad():
-            conv_obs = self.ac_net_old.cnn(obs_t)  # [1,64]
             opp_vec = encode_opp_to_onehot(strategy)  # [1,2]
-            net_in = torch.cat([conv_obs, opp_vec], dim=1)  # [1,66]
+            net_in = torch.cat([obs_t, opp_vec], dim=1)  # [1,66]
             probs = self.ac_net_old.actor(net_in).squeeze(0)  # [A]
         dist = Categorical(probs)
 
@@ -194,14 +195,10 @@ class PPO:
         opp_next_vec = F.one_hot(opp_next, num_classes=2).float()
 
         with torch.no_grad():
-            feat_s = self.ac_net.reshape_cnn_input(obses)
-            feat_s = self.ac_net.cnn(feat_s)  # [B, 64]
-            net_in = torch.cat([feat_s, opp_prev_vec], dim=1)
+            net_in = torch.cat([obses, opp_prev_vec], dim=1)
             values = self.ac_net.critic(net_in).squeeze(-1)  # [B]
 
-            feat_n = self.ac_net.reshape_cnn_input(ne_obses)
-            feat_n = self.ac_net.cnn(feat_n)
-            net_in_next = torch.cat([feat_n, opp_next_vec], dim=1)
+            net_in_next = torch.cat([ne_obses, opp_next_vec], dim=1)
             next_values = self.ac_net.critic(net_in_next).squeeze(-1)  # [B]
 
             advantages = []
@@ -221,11 +218,7 @@ class PPO:
 
         total_loss = 0.0
         for _ in range(self.K_epochs):
-            # -------- forward actor / critic --------
-            feat_s = self.ac_net.reshape_cnn_input(obses)
-            feat_s = self.ac_net.cnn(feat_s)  # [B, 64]
-            net_in = torch.cat([feat_s, opp_prev_vec], dim=1)  # [B, 66]
-
+            net_in = torch.cat([obses, opp_prev_vec], dim=1)  # [B, 66]
             probs = self.ac_net.actor(net_in)  # [B, A]
             dist = Categorical(probs)
             log_probs = dist.log_prob(actions)  # [B]

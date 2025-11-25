@@ -28,9 +28,9 @@ def choice_action(
     agent_policy: str, agent_id: int,
     pos_info: Dict[str, List[Tuple[int, int]]], opp_last: int = 0,
 ) -> int:
-    opp_agent_pos = pos_info['entity_positions'][f"agent_{agent_id}"]
-    stag_pos = pos_info['entity_positions']["stag"]
-    plants_pos = pos_info['entity_positions']["plants"]
+    opp_agent_pos = pos_info[f"agent_{agent_id}"]
+    stag_pos = pos_info["stag"]
+    plants_pos = pos_info["plants"]
 
     if agent_policy == "allc":
         return allc_policy(opp_agent_pos, stag_pos)
