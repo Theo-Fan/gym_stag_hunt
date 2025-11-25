@@ -13,7 +13,7 @@ import gymnasium as gym
 from algo.Utils import row2, convert_coords_to_tuples, row1
 from algo.agent.ppo_agent_memory import PPO as PPO_Memory
 from algo.fixed_policy import choice_action
-from algo.opp_policy import sample_opponent_policy_three
+from algo.opp_policy import sample_opponent_policy_two
 from algo.strategy_infer_model import global_strategy_infer_stag_hunt
 
 
@@ -48,7 +48,7 @@ def main():
     random_seed = 0
 
     ################ TFT hyperparameters ################
-    lambda_tft = 10.0
+    lambda_tft = 5.0 * 4
     lambda_imp = 0.0
 
     WINDOW = 500
@@ -73,8 +73,8 @@ def main():
         import wandb
         wandb.init(
             project=env_name,
-            tags=["Rule-based Opponent", "opp_allc", "opp_alld", "opp_tft", "Train Agent0"],
-            name=f"TFT_r_{lambda_tft}_three",
+            tags=["Rule-based Opponent", "opp_allc", "opp_alld", "Train Agent0"],
+            name=f"TFT_r_{lambda_tft}_two",
             mode="online",
             config={
                 "env": env_name,
@@ -98,7 +98,7 @@ def main():
     state_dim = env.observation_space.shape
     action_dim = env.action_space.n
 
-    directory = f"ppo_preTrain/stag_hunt/Three_strategies_to_tft_r_{lambda_tft}"
+    directory = f"ppo_preTrain/stag_hunt/Two_strategies_to_tft_r_{lambda_tft}"
     if not os.path.exists(directory):
         os.makedirs(directory)
 
@@ -203,7 +203,7 @@ def main():
         agent0_pos_lst = [pos_info["agent_0"]]
         agent1_pos_lst = [pos_info['agent_1']]
 
-        opp_cur_episode_policy = sample_opponent_policy_three()  # policy rollout: "allc", "alld", "tft"
+        opp_cur_episode_policy = sample_opponent_policy_two()  # policy rollout: "allc", "alld"
         tmp_strategies_lst.append(opp_cur_episode_policy)
 
         for t in range(max_ep_len):
