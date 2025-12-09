@@ -41,7 +41,8 @@ def main():
     action_dim = env.action_space.n
 
     agent0 = PPO_Memory(state_dim, action_dim, lr_actor, lr_critic, gamma, K_epochs, eps_clip)
-    agent_0_checkpoint_path = "save_model/agent0/TFT_model.pth"
+    agent_0_checkpoint_path = "ppo_preTrain/stag_hunt/Three_strategies_to_tft_r_0.0/StagHunt-Hunt-v0/agent_0/agent_0_PPO_StagHunt-Hunt-v0_0_30000000.pth"
+
     agent0.load_model(agent_0_checkpoint_path)
 
     print("============================================================================================")

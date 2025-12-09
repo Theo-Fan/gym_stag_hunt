@@ -34,7 +34,7 @@ def main():
     grid_size = (8, 8)
     max_ep_len = 500
 
-    max_training_timesteps = int(1e8)
+    max_training_timesteps = int(3e7)
     print_freq = max_ep_len * 20
     save_model_freq = int(5e5)
 
@@ -48,7 +48,7 @@ def main():
     random_seed = 0
 
     ################ TFT hyperparameters ################
-    lambda_tft = 10.0
+    lambda_tft = 0.0
     lambda_imp = 0.0
 
     WINDOW = 500
@@ -90,6 +90,7 @@ def main():
                 "max_training_timesteps": max_training_timesteps,
                 "algorithm": "PPO",
                 "trained_agent": "agent_0",
+                "grid_size": grid_size,
                 "r_align": lambda_tft,
                 "r_imp": lambda_imp
             },
@@ -208,7 +209,7 @@ def main():
 
         for t in range(max_ep_len):
             agent0_action, _, agent0_action_log_prob = agent0.get_action(
-                obses[0], agent1_last_strategy
+                obses[0], 1
             )
 
             agent1_action = choice_action(
