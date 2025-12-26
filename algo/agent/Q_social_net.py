@@ -164,53 +164,182 @@ class Q_net:
         q_value = self.ac_net.critic(critic_in)
         return q_value.squeeze()
 
+    def eval_q(self, obs, a1: int, a2: int):
+        self.ac_net.eval()
+        with torch.no_grad():
+            obs_t = torch.as_tensor(obs, dtype=torch.float32, device=device).unsqueeze(0)  # [1, obs_size]
+            a1_t = torch.as_tensor([a1], dtype=torch.long, device=device)  # [1]
+            a2_t = torch.as_tensor([a2], dtype=torch.long, device=device)  # [1]
+            q = self.get_q_value(obs_t, a1_t, a2_t)
+            return float(q.item())
+
+    # def update_net(self):
+    #     obses, a1, a2, old_log_probs, rewards, ne_obses, dones = self.buffer.get_all()
+    #
+    #     obses = torch.as_tensor(obses, dtype=torch.float32, device=device)  # [B, obs_size]
+    #     self_actions = torch.as_tensor(a1, dtype=torch.long, device=device).view(-1)  # [B]
+    #     other_actions = torch.as_tensor(a2, dtype=torch.long, device=device).view(-1)  # [B]
+    #     old_log_probs = torch.as_tensor(old_log_probs, dtype=torch.float32, device=device).view(-1).detach()  # [B]
+    #     rewards = torch.as_tensor(rewards, dtype=torch.float32, device=device).view(-1)  # [B]
+    #     dones = torch.as_tensor(dones, dtype=torch.float32, device=device).view(-1)  # [B]
+    #
+    #     B = rewards.size(0)
+    #     A = self.ac_net.action_dim
+    #
+    #     with torch.no_grad():
+    #         returns = torch.zeros_like(rewards)  # [B]
+    #         G = 0.0
+    #         for t in reversed(range(B)):
+    #             if dones[t] > 0.5:
+    #                 G = 0.0
+    #             G = rewards[t] + self.gamma * G
+    #             returns[t] = G
+    #         returns = returns.detach()
+    #
+    #         probs_old = self.ac_net_old.actor(obses)
+    #         probs_old = torch.clamp(probs_old, 1e-8, 1.0)
+    #         probs_old = probs_old / probs_old.sum(dim=-1, keepdim=True)
+    #
+    #         # enumerate all self actions
+    #         all_self = torch.arange(A, device=device, dtype=torch.long).view(1, A).expand(B, A)  # [B, A]
+    #         all_other = other_actions.view(B, 1).expand(B, A)  # [B, A]
+    #
+    #         # flatten to [B*A]
+    #         a1_all = all_self.reshape(B * A)  # [B*A]
+    #         a2_all = all_other.reshape(B * A)  # [B*A]
+    #
+    #         # repeat obs to match [B*A, obs_size]
+    #         obs_rep = obses.unsqueeze(1).expand(B, A, obses.size(1)).reshape(B * A, obses.size(1))  # [B*A, obs_size]
+    #
+    #         # Q for all actions: [B*A] -> [B, A]
+    #         q_all = self.get_q_value(obs_rep, a1_all, a2_all).view(B, A)  # [B, A]
+    #
+    #         v_baseline = (probs_old * q_all).sum(dim=1).detach()  # [B]
+    #
+    #         advantages = (returns - v_baseline).detach()
+    #         advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+    #
+    #     # ========= 2) PPO 更新 =========
+    #     total_loss = 0.0
+    #     for _ in range(self.K_epochs):
+    #         probs = self.ac_net.actor(obses)
+    #         probs = torch.clamp(probs, 1e-8, 1.0)
+    #         probs = probs / probs.sum(dim=-1, keepdim=True)
+    #         dist = Categorical(probs)
+    #
+    #         log_probs = dist.log_prob(self_actions)  # [B]
+    #         entropy = dist.entropy().mean()
+    #
+    #         ratios = torch.exp(log_probs - old_log_probs)  # [B]
+    #
+    #         surr1 = ratios * advantages
+    #         surr2 = torch.clamp(ratios, 1 - self.eps_clip, 1 + self.eps_clip) * advantages
+    #         policy_loss = -torch.min(surr1, surr2).mean()
+    #
+    #         values = self.get_q_value(obses, self_actions, other_actions)  # [B]
+    #         value_loss = F.smooth_l1_loss(values, returns)
+    #
+    #         combined_loss = policy_loss + 0.5 * value_loss - 0.01 * entropy
+    #
+    #         self.ac_optim.zero_grad()
+    #         combined_loss.backward()
+    #         torch.nn.utils.clip_grad_norm_(self.ac_net.parameters(), 0.5)
+    #         self.ac_optim.step()
+    #
+    #         total_loss += combined_loss.item()
+    #
+    #     self.ac_net_old.load_state_dict(self.ac_net.state_dict())
+    #     self.buffer.clear()
+    #     return total_loss / self.K_epochs
+
     def update_net(self):
         obses, a1, a2, old_log_probs, rewards, ne_obses, dones = self.buffer.get_all()
 
-        obses = torch.as_tensor(obses, dtype=torch.float32, device=device)  # [B, obs_size]
-        self_actions = torch.as_tensor(a1, dtype=torch.long, device=device).view(-1)  # [B]
-        other_actions = torch.as_tensor(a2, dtype=torch.long, device=device).view(-1)  # [B]
-        old_log_probs = torch.as_tensor(old_log_probs, dtype=torch.float32, device=device).view(-1).detach()  # [B]
-        rewards = torch.as_tensor(rewards, dtype=torch.float32, device=device).view(-1)  # [B]
-        dones = torch.as_tensor(dones, dtype=torch.float32, device=device).view(-1)  # [B]
+        obses = torch.as_tensor(obses, dtype=torch.float32, device=device)  # [B, obs]
+        ne_obses = torch.as_tensor(ne_obses, dtype=torch.float32, device=device)  # [B, obs]
+        a1 = torch.as_tensor(a1, dtype=torch.long, device=device).view(-1)  # [B]
+        a2 = torch.as_tensor(a2, dtype=torch.long, device=device).view(-1)  # [B]
+        old_log_probs = torch.as_tensor(old_log_probs, dtype=torch.float32, device=device).view(-1).detach()
+        rewards = torch.as_tensor(rewards, dtype=torch.float32, device=device).view(-1)
+        dones = torch.as_tensor(dones, dtype=torch.float32, device=device).view(-1)
 
         B = rewards.size(0)
         A = self.ac_net.action_dim
+        not_done = (1.0 - dones).clamp(0.0, 1.0)
 
+        # 最后一条没有 next_action（即使 next_obs 有），不要 bootstrap
+        valid_next = torch.ones(B, device=device, dtype=torch.float32)
+        if B > 0:
+            valid_next[-1] = 0.0
+        bootstrap_mask = not_done * valid_next  # [B]
+
+        # --- helper: 用某个网络 net 计算 Q(s,a1,a2) ---
+        def q_by_net(net, obs, aa1, aa2):
+            joint_oh = self.get_joint_onehot(aa1, aa2)  # [B, A^2]
+            critic_in = torch.cat([obs, joint_oh], dim=1)  # [B, obs + A^2]
+            return net.critic(critic_in).squeeze(-1)  # [B]
+
+        # ========= 1) no_grad: 计算 V_t(反事实baseline), GAE, 以及 critic TD target =========
         with torch.no_grad():
-            returns = torch.zeros_like(rewards)  # [B]
-            G = 0.0
-            for t in reversed(range(B)):
-                if dones[t] > 0.5:
-                    G = 0.0
-                G = rewards[t] + self.gamma * G
-                returns[t] = G
-            returns = returns.detach()
-
-            probs_old = self.ac_net_old.actor(obses)
+            # ---- (a) 计算 V_t = E_{a~pi_old} Q_old(s,(a,a2_t)) ----
+            probs_old = self.ac_net_old.actor(obses)  # [B, A]
             probs_old = torch.clamp(probs_old, 1e-8, 1.0)
             probs_old = probs_old / probs_old.sum(dim=-1, keepdim=True)
 
-            # enumerate all self actions
-            all_self = torch.arange(A, device=device, dtype=torch.long).view(1, A).expand(B, A)  # [B, A]
-            all_other = other_actions.view(B, 1).expand(B, A)  # [B, A]
+            all_self = torch.arange(A, device=device, dtype=torch.long).view(1, A).expand(B, A)  # [B,A]
+            all_other = a2.view(B, 1).expand(B, A)  # [B,A]
 
-            # flatten to [B*A]
-            a1_all = all_self.reshape(B * A)  # [B*A]
-            a2_all = all_other.reshape(B * A)  # [B*A]
+            obs_rep = obses.unsqueeze(1).expand(B, A, obses.size(1)).reshape(B * A, obses.size(1))
+            a1_all = all_self.reshape(B * A)
+            a2_all = all_other.reshape(B * A)
 
-            # repeat obs to match [B*A, obs_size]
-            obs_rep = obses.unsqueeze(1).expand(B, A, obses.size(1)).reshape(B * A, obses.size(1))  # [B*A, obs_size]
+            q_all_old = q_by_net(self.ac_net_old, obs_rep, a1_all, a2_all).view(B, A)  # [B,A]
+            V = (probs_old * q_all_old).sum(dim=1)  # [B]
 
-            # Q for all actions: [B*A] -> [B, A]
-            q_all = self.get_q_value(obs_rep, a1_all, a2_all).view(B, A)  # [B, A]
+            # ---- (b) 计算 V_{t+1}：需要 a2_{t+1}，用 shift 得到（并断开边界）----
+            next_a2 = torch.zeros_like(a2)
+            if B > 1:
+                next_a2[:-1] = a2[1:]
+            next_a2 = torch.where(dones > 0.5, torch.zeros_like(next_a2), next_a2)
 
-            v_baseline = (probs_old * q_all).sum(dim=1).detach()  # [B]
+            # 对 next state 也算 V_next = E_{a~pi_old(.|s')} Q_old(s',(a,next_a2))
+            probs_old_next = self.ac_net_old.actor(ne_obses)
+            probs_old_next = torch.clamp(probs_old_next, 1e-8, 1.0)
+            probs_old_next = probs_old_next / probs_old_next.sum(dim=-1, keepdim=True)
 
-            advantages = (returns - v_baseline).detach()
+            all_self_n = torch.arange(A, device=device, dtype=torch.long).view(1, A).expand(B, A)
+            all_other_n = next_a2.view(B, 1).expand(B, A)
+            ne_obs_rep = ne_obses.unsqueeze(1).expand(B, A, ne_obses.size(1)).reshape(B * A, ne_obses.size(1))
+            a1_all_n = all_self_n.reshape(B * A)
+            a2_all_n = all_other_n.reshape(B * A)
+
+            q_all_old_next = q_by_net(self.ac_net_old, ne_obs_rep, a1_all_n, a2_all_n).view(B, A)
+            V_next = (probs_old_next * q_all_old_next).sum(dim=1)  # [B]
+
+            # ---- (c) GAE advantages: delta = r + gamma*V_next - V ----
+            lam = 0.95
+            advantages = torch.zeros_like(rewards)
+            gae = 0.0
+            for t in reversed(range(B)):
+                delta = rewards[t] + self.gamma * bootstrap_mask[t] * V_next[t] - V[t]
+                gae = delta + self.gamma * lam * bootstrap_mask[t] * gae
+                advantages[t] = gae
+                if dones[t] > 0.5:
+                    gae = 0.0
+
+            returns = (advantages + V).detach()  # 让 baseline V 回归 returns（稳定）
             advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
-        # ========= 2) PPO 更新 =========
+            # ---- (d) critic TD target for Q(s,a1,a2): SARSA(0) using next (a1,a2) from rollout ----
+            next_a1 = torch.zeros_like(a1)
+            if B > 1:
+                next_a1[:-1] = a1[1:]
+            next_a1 = torch.where(dones > 0.5, torch.zeros_like(next_a1), next_a1)
+
+            q_next_old = q_by_net(self.ac_net_old, ne_obses, next_a1, next_a2)  # [B]
+            td_target_q = (rewards + self.gamma * bootstrap_mask * q_next_old).detach()
+
+        # ========= 2) PPO update =========
         total_loss = 0.0
         for _ in range(self.K_epochs):
             probs = self.ac_net.actor(obses)
@@ -218,17 +347,17 @@ class Q_net:
             probs = probs / probs.sum(dim=-1, keepdim=True)
             dist = Categorical(probs)
 
-            log_probs = dist.log_prob(self_actions)  # [B]
+            log_probs = dist.log_prob(a1)  # [B]
             entropy = dist.entropy().mean()
 
-            ratios = torch.exp(log_probs - old_log_probs)  # [B]
-
+            ratios = torch.exp(log_probs - old_log_probs)
             surr1 = ratios * advantages
             surr2 = torch.clamp(ratios, 1 - self.eps_clip, 1 + self.eps_clip) * advantages
             policy_loss = -torch.min(surr1, surr2).mean()
 
-            values = self.get_q_value(obses, self_actions, other_actions)  # [B]
-            value_loss = F.smooth_l1_loss(values, returns)
+            # --- critic loss: 让 Q(s,a1,a2) 拟合 td_target_q（用于动作区分） ---
+            q_pred = self.get_q_value(obses, a1, a2)  # [B]
+            value_loss = F.smooth_l1_loss(q_pred, td_target_q)
 
             combined_loss = policy_loss + 0.5 * value_loss - 0.01 * entropy
 
@@ -237,7 +366,7 @@ class Q_net:
             torch.nn.utils.clip_grad_norm_(self.ac_net.parameters(), 0.5)
             self.ac_optim.step()
 
-            total_loss += combined_loss.item()
+            total_loss += float(combined_loss.item())
 
         self.ac_net_old.load_state_dict(self.ac_net.state_dict())
         self.buffer.clear()

@@ -143,3 +143,54 @@ def row2(label, v0, v1):
 
 def row1(label: str, v: Any) -> str:
     return f"\t{label:<{label_w}}{fmt_value(v)}"
+
+
+def counterfactual_infer_model(
+    red_agent_obses, red_agent_actions,
+    blue_agent_obses, blue_agent_actions,
+    infer_model, action_dim,
+    gamma: float = 0.95,
+    t: int = 0, verbose: bool = False
+):
+    total_social_influence = 0
+    for i in range(len(red_agent_obses)):
+        self_current_obs = red_agent_obses[i]
+        self_current_action = red_agent_actions[i]
+        opp_current_obs = blue_agent_obses[i]
+        opp_current_action = blue_agent_actions[i]
+
+        self_a, prob, log_prob = infer_model.get_action(self_current_obs)
+        prob_item = [round(x.item(), 6) for x in prob]
+
+        cur_action_value = infer_model.eval_q(self_current_obs, self_current_action, opp_current_action)
+
+        self_action_value_lst = []
+        for ii in range(action_dim):
+            tmp_action_value = infer_model.eval_q(self_current_obs, ii, opp_current_action)
+            self_action_value_lst.append(tmp_action_value)
+
+        prob = np.asarray(prob.detach().cpu().numpy(), dtype=np.float64)  # [A]
+        prob = np.clip(prob, 1e-12, 1.0)
+        prob = prob / prob.sum()
+        q_arr = np.asarray(self_action_value_lst, dtype=np.float64)  # [A]
+
+        # baseline_value = float(np.sum(prob * q_arr))
+
+        baseline_value = float(np.median(self_action_value_lst))
+        social_influence = float(cur_action_value - baseline_value)
+        social_influence = np.clip(social_influence, -2, 2)
+        total_social_influence += (gamma**i) * social_influence
+
+        if verbose:
+            print(f"step {t} -- cur_action_value: {cur_action_value} \n"
+                  f"self_action_value_lst: {self_action_value_lst}\n"
+                  f"self_action_prob_list: {list(prob_item)} | "
+                  f"self action: {self_current_action} | opp action:{opp_current_action}\n"
+                  f"cur_self obs: {self_current_obs}, \n"
+                  f"cur_opp  obs: {opp_current_obs}, \n"
+                  f"baseline_value: {baseline_value} "
+                  f"social influence: {social_influence}\n")
+    if verbose:
+        print(f"total_social_influence: {total_social_influence}")
+
+    return 0 if total_social_influence > 0 else 1

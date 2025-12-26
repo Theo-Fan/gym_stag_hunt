@@ -17,12 +17,11 @@ from algo.fixed_policy import choice_action
 
 def main():
     env_name = "StagHunt-Hunt-v0"
+    grid_size = (8, 8)
     max_ep_len = 500
+
     max_training_timesteps = int(2e7)
-
     print_freq = max_ep_len * 10
-    log_freq = max_ep_len * 2
-
     save_model_freq = int(5e5)
 
     update_timestep = max_ep_len * 12
@@ -37,24 +36,25 @@ def main():
     random_seed = 0
 
     env = gym.make(
-        env_name,
-        grid_size=(5, 5),
+        id=env_name,
+        grid_size=grid_size,
         screen_size=(600, 600),
         obs_type="coords",
         enable_multiagent=True,
-        run_away_after_maul=True,
+        run_away_after_maul=False,
         forage_quantity=2,
         stag_reward=5,
         forage_reward=1,
-        mauling_punishment=-2,
+        mauling_punishment=-1e-4,
     )
-    USE_WANDB = False
+
+    USE_WANDB = True
     if USE_WANDB:
         import wandb
         wandb.init(
             project=env_name,
-            tags=["PPO", "Train Basic"],
-            name=f"PPO_Train_Basic",
+            tags=["PPO", "Train Social Network", "train agent1"],
+            name=f"Train_social_net_Agent1",
             mode="online",
             config={
                 "env": env_name,
@@ -103,7 +103,6 @@ def main():
     print("max training timesteps : ", max_training_timesteps)
     print("max timesteps per episode : ", max_ep_len)
     print("model saving frequency : " + str(save_model_freq) + " timesteps")
-    print("log frequency : " + str(log_freq) + " timesteps")
     print("printing average reward over episodes in last : " + str(print_freq) + " timesteps")
     print("--------------------------------------------------------------------------------------------")
     print("state space dimension : ", state_dim)
@@ -127,7 +126,7 @@ def main():
     print("--------------------------------------------------------------------------------------------")
 
     agent0 = Q_net(state_dim, action_dim, lr_actor, lr_critic, gamma, K_epochs, eps_clip)
-    # agent1 = PPO_Basic(state_dim, action_dim, lr_actor, lr_critic, gamma, K_epochs, eps_clip)
+    # agent1 = Q_net(state_dim, action_dim, lr_actor, lr_critic, gamma, K_epochs, eps_clip)
 
     print("============================================================================================")
     start_time = datetime.now().replace(microsecond=0)
@@ -166,6 +165,12 @@ def main():
             # agent1_action, _, agent1_action_log_prob = agent1.get_action(obses[1])
 
             pos_info = convert_coords_to_tuples(infos)["entity_positions"]
+            # agent0_action = choice_action(
+            #     agent_policy=opp_strategy,
+            #     agent_id=0,
+            #     pos_info=pos_info,
+            # )
+
             agent1_action = choice_action(
                 agent_policy=opp_strategy,
                 agent_id=1,
@@ -203,6 +208,7 @@ def main():
             # agent1.buffer.add(
             #     obses[1],
             #     agent1_action,
+            #     agent0_action,
             #     agent1_action_log_prob,
             #     sum(reward),
             #     ne_obses[1],
