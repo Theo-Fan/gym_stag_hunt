@@ -20,7 +20,7 @@ def main():
     grid_size = (8, 8)
     max_ep_len = 500
 
-    max_training_timesteps = int(2e7)
+    max_training_timesteps = int(3e7)
     print_freq = max_ep_len * 10
     save_model_freq = int(5e5)
 

@@ -41,7 +41,7 @@ action_dim = env.action_space.n
 
 infer_model = Q_net(state_dim, action_dim, lr_actor, lr_critic, gamma, K_epochs, eps_clip)
 infer_model.load_model(
-    "ppo_preTrain/stag_hunt/train_soical_net/StagHunt-Hunt-v0/agent_0/agent_0_PPO_StagHunt-Hunt-v0_0_10000000.pth"
+"ppo_preTrain/stag_hunt/train_soical_net/StagHunt-Hunt-v0/agent_0/agent_0_PPO_StagHunt-Hunt-v0_0_30000000.pth"
 )
 # ppo_preTrain/stag_hunt/train_soical_net/StagHunt-Hunt-v0/agent_0/agent_0_PPO_StagHunt-Hunt-v0_0_15000000.pth
 
