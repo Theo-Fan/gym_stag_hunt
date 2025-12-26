@@ -10,7 +10,8 @@ from datetime import datetime
 import gym_stag_hunt
 import gymnasium as gym
 
-from algo.Utils import row2, convert_coords_to_tuples, row1
+from algo.Utils import row2, convert_coords_to_tuples, row1, counterfactual_infer_model
+from algo.agent.Q_social_net import Q_net
 from algo.agent.ppo_agent_memory import PPO as PPO_Memory
 from algo.fixed_policy import choice_action
 from algo.opp_policy import sample_opponent_policy_three
@@ -48,7 +49,7 @@ def main():
     random_seed = 0
 
     ################ TFT hyperparameters ################
-    lambda_tft = 0.0
+    lambda_tft = 10.0
     lambda_imp = 0.0
 
     WINDOW = 500
@@ -98,6 +99,11 @@ def main():
 
     state_dim = env.observation_space.shape
     action_dim = env.action_space.n
+
+    infer_model = Q_net(state_dim, action_dim, lr_actor, lr_critic, gamma, K_epochs, eps_clip)
+    infer_model.load_model(
+        "ppo_preTrain/stag_hunt/train_soical_net/StagHunt-Hunt-v0/agent_0/agent_0_PPO_StagHunt-Hunt-v0_0_10000000.pth"
+    )
 
     directory = f"ppo_preTrain/stag_hunt/Three_strategies_to_tft_r_{lambda_tft}"
     if not os.path.exists(directory):
@@ -201,6 +207,11 @@ def main():
         agent0_history_strategies = []
         agent1_history_strategies = []
 
+        agent0_obses = []
+        agent1_obses = []
+        agent0_actions = []
+        agent1_actions = []
+
         agent0_pos_lst = [pos_info["agent_0"]]
         agent1_pos_lst = [pos_info['agent_1']]
 
@@ -209,7 +220,7 @@ def main():
 
         for t in range(max_ep_len):
             agent0_action, _, agent0_action_log_prob = agent0.get_action(
-                obses[0], 1
+                obses[0], agent1_last_strategy
             )
 
             agent1_action = choice_action(
@@ -220,6 +231,11 @@ def main():
             )
 
             actions = [agent0_action, agent1_action]
+
+            agent0_obses.append(obses[0])
+            agent0_actions.append(agent0_action)
+            agent1_obses.append(obses[1])
+            agent1_actions.append(agent1_action)
 
             ne_obses, rewards, dones, truncateds, infos = env.step(actions)
             rewards = list(rewards)
@@ -249,13 +265,35 @@ def main():
             trigger = (env_r0 + env_r1) > 0
 
             if trigger and len(agent0_pos_lst) > 1:
-                agent0_curr_strategy = global_strategy_infer_stag_hunt(
-                    0, agent0_pos_lst, stag_pos, plants_pos, rewards, agent0_history_strategies
+                # agent0_curr_strategy = global_strategy_infer_stag_hunt(
+                #     0, agent0_pos_lst, stag_pos, plants_pos, rewards, agent0_history_strategies
+                # )
+                #
+                # agent1_curr_strategy = global_strategy_infer_stag_hunt(
+                #     1, agent1_pos_lst, stag_pos, plants_pos, rewards, agent1_history_strategies
+                # )
+
+                agent0_curr_strategy = counterfactual_infer_model(
+                    agent0_obses, agent0_actions,
+                    agent1_obses, agent1_actions,
+                    infer_model, action_dim,
                 )
 
-                agent1_curr_strategy = global_strategy_infer_stag_hunt(
-                    1, agent1_pos_lst, stag_pos, plants_pos, rewards, agent1_history_strategies
+                agent1_curr_strategy = counterfactual_infer_model(
+                    agent1_obses, agent1_actions,
+                    agent0_obses, agent0_actions,
+                    infer_model, action_dim,
                 )
+
+                if rewards[0] == 5.0 and rewards[1] == 5.0:
+                    agent0_curr_strategy = 0
+                    agent1_curr_strategy = 0
+
+                if rewards[0] == 1.0:
+                    agent0_curr_strategy = 1
+
+                if rewards[1] == 1.0:
+                    agent1_curr_strategy = 1
 
                 agent0_history_strategies.append(agent0_curr_strategy)
                 agent1_history_strategies.append(agent1_curr_strategy)
@@ -280,6 +318,11 @@ def main():
                     lambda_tft=lambda_tft,
                     lambda_imp=lambda_imp,
                 )
+
+                agent0_obses = []
+                agent1_obses = []
+                agent0_actions = []
+                agent1_actions = []
 
                 agent0_pos_lst = [pos_info["agent_0"]]
                 agent1_pos_lst = [pos_info["agent_1"]]
