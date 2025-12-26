@@ -8,7 +8,7 @@ from datetime import datetime
 import gym_stag_hunt
 import gymnasium as gym
 
-from algo.Utils import row2
+from algo.Utils import row2, convert_coords_to_tuples
 from algo.agent.ppo_agent import PPO as PPO_Basic
 from algo.fixed_policy import choice_action
 
@@ -44,7 +44,7 @@ def main():
         forage_reward=1,
         mauling_punishment=-1e-4,
     )
-    USE_WANDB = True
+    USE_WANDB = False
     if USE_WANDB:
         import wandb
         wandb.init(
@@ -160,10 +160,11 @@ def main():
         for t in range(max_ep_len):
             agent0_action, _, agent0_action_log_prob = agent0.get_action(obses[0])
 
+            pos_info = convert_coords_to_tuples(infos)["entity_positions"]
             agent1_action = choice_action(
-                agent_policy="alld",
+                agent_policy="allc",
                 agent_id=1,
-                pos_info=infos,
+                pos_info=pos_info,
             )
 
             actions = [agent0_action, agent1_action]

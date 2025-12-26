@@ -1,6 +1,8 @@
 import os
 import random
 import csv
+import sys
+
 import torch
 import numpy as np
 from datetime import datetime
@@ -9,48 +11,50 @@ import gym_stag_hunt
 import gymnasium as gym
 
 from algo.Utils import row2, convert_coords_to_tuples
-from algo.agent.ppo_agent import PPO as PPO_Basic
+from algo.agent.Q_social_net import Q_net
 from algo.fixed_policy import choice_action
 
 
 def main():
     env_name = "StagHunt-Hunt-v0"
-    grid_size = (8, 8)
     max_ep_len = 500
+    max_training_timesteps = int(2e7)
 
-    max_training_timesteps = int(1e7)
-    print_freq = max_ep_len * 20
+    print_freq = max_ep_len * 10
     log_freq = max_ep_len * 2
+
     save_model_freq = int(5e5)
 
     update_timestep = max_ep_len * 12
     K_epochs = 8
+
     eps_clip = 0.2
     gamma = 0.99
+
     lr_actor = 0.0003
     lr_critic = 0.001
 
     random_seed = 0
 
     env = gym.make(
-        id=env_name,
-        grid_size=grid_size,
+        env_name,
+        grid_size=(5, 5),
         screen_size=(600, 600),
         obs_type="coords",
         enable_multiagent=True,
-        run_away_after_maul=False,
+        run_away_after_maul=True,
         forage_quantity=2,
         stag_reward=5,
         forage_reward=1,
-        mauling_punishment=-1e-4,
+        mauling_punishment=-2,
     )
     USE_WANDB = False
     if USE_WANDB:
         import wandb
         wandb.init(
             project=env_name,
-            tags=["PPO", "Train ALLC", "Rule-Base"],
-            name=f"rule-base_train_allc",
+            tags=["PPO", "Train Basic"],
+            name=f"PPO_Train_Basic",
             mode="online",
             config={
                 "env": env_name,
@@ -58,15 +62,14 @@ def main():
                 "K_epochs": K_epochs,
                 "max_ep_len": max_ep_len,
                 "lr": lr_actor,
-                "max_training_timesteps": max_training_timesteps,
-                "grid_size": grid_size,
+                "max_training_timesteps": max_training_timesteps
             },
         )
 
     state_dim = env.observation_space.shape
     action_dim = env.action_space.n
 
-    directory = "ppo_preTrain/stag_hunt/rulebase_allc"
+    directory = "ppo_preTrain/stag_hunt/train_soical_net"
     if not os.path.exists(directory):
         os.makedirs(directory)
 
@@ -123,7 +126,7 @@ def main():
         random.seed(random_seed)
     print("--------------------------------------------------------------------------------------------")
 
-    agent0 = PPO_Basic(state_dim, action_dim, lr_actor, lr_critic, gamma, K_epochs, eps_clip)
+    agent0 = Q_net(state_dim, action_dim, lr_actor, lr_critic, gamma, K_epochs, eps_clip)
     # agent1 = PPO_Basic(state_dim, action_dim, lr_actor, lr_critic, gamma, K_epochs, eps_clip)
 
     print("============================================================================================")
@@ -145,6 +148,7 @@ def main():
     i_episode = 0
 
     while time_step <= max_training_timesteps:
+        obses, infos = env.reset()
 
         agent0_current_ep_reward = 0
         agent1_current_ep_reward = 0
@@ -155,14 +159,15 @@ def main():
         agent0_current_ep_hunt_cnt = 0
         agent1_current_ep_hunt_cnt = 0
 
-        obses, infos = env.reset()
+        opp_strategy = np.random.choice(["allc", "alld"])
 
         for t in range(max_ep_len):
             agent0_action, _, agent0_action_log_prob = agent0.get_action(obses[0])
+            # agent1_action, _, agent1_action_log_prob = agent1.get_action(obses[1])
 
             pos_info = convert_coords_to_tuples(infos)["entity_positions"]
             agent1_action = choice_action(
-                agent_policy="allc",
+                agent_policy=opp_strategy,
                 agent_id=1,
                 pos_info=pos_info,
             )
@@ -188,6 +193,7 @@ def main():
             agent0.buffer.add(
                 obses[0],
                 agent0_action,
+                agent1_action,
                 agent0_action_log_prob,
                 sum(reward),
                 ne_obses[0],
