@@ -56,7 +56,7 @@ def main():
     coop_window_allc = deque(maxlen=WINDOW)
     coop_window_alld = deque(maxlen=WINDOW)
 
-    punishment = -0.2
+    punishment = -0.1
 
     env = gym.make(
         id=env_name,

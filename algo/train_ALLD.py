@@ -32,7 +32,7 @@ def main():
 
     random_seed = 0
 
-    punishment = -0.2
+    punishment = -0.1
 
     env = gym.make(
         id=env_name,
