@@ -49,12 +49,14 @@ def main():
     random_seed = 0
 
     ################ TFT hyperparameters ################
-    lambda_tft = 10.0
+    lambda_tft = 15.0
     lambda_imp = 0.0
 
     WINDOW = 500
     coop_window_allc = deque(maxlen=WINDOW)
     coop_window_alld = deque(maxlen=WINDOW)
+
+    punishment = -0.2
 
     env = gym.make(
         id=env_name,
@@ -66,7 +68,7 @@ def main():
         forage_quantity=2,
         stag_reward=5,
         forage_reward=1,
-        mauling_punishment=-1e-4,
+        mauling_punishment=punishment,
     )
 
     USE_WANDB = True
@@ -93,7 +95,8 @@ def main():
                 "trained_agent": "agent_0",
                 "grid_size": grid_size,
                 "r_align": lambda_tft,
-                "r_imp": lambda_imp
+                "r_imp": lambda_imp,
+                "mauling_punishment": punishment
             },
         )
 

@@ -32,6 +32,8 @@ def main():
 
     random_seed = 0
 
+    punishment = -0.2
+
     env = gym.make(
         id=env_name,
         grid_size=grid_size,
@@ -42,7 +44,7 @@ def main():
         forage_quantity=2,
         stag_reward=5,
         forage_reward=1,
-        mauling_punishment=-1e-4,
+        mauling_punishment=punishment,
     )
     USE_WANDB = False
     if USE_WANDB:
@@ -60,6 +62,7 @@ def main():
                 "lr": lr_actor,
                 "max_training_timesteps": max_training_timesteps,
                 "grid_size": grid_size,
+                "mauling_punishment":punishment,
             },
         )
 
